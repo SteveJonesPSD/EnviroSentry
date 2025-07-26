@@ -1,8 +1,7 @@
 esphome:
-	name: envirosentry
-	name_add_mac_suffix: true
+ name_add_mac_suffix: true
   
-  on_boot:
+ on_boot:
     priority: 600
     then:
       - lambda: |-
