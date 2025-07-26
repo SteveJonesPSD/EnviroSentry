@@ -1,0 +1,7 @@
+{
+  "name": "EnviroSentry",
+  "description": "Full configuration for the EnviroSentry Air Quality Smart “Sensor,
+  "files": {
+    "envirosentry.yaml": "https://raw.githubusercontent.com/SteveJonesPSD/envirosentry/main/envirosentry.yaml"
+  }
+}
