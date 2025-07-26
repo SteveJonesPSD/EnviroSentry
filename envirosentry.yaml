@@ -1,7 +1,7 @@
 esphome:
- name: envirosentry
- friendly_name: “EnviroSentry”
- name_add_mac_suffix: true
+  name: envirosentry
+  friendly_name: envirosentry
+  name_add_mac_suffix: True
   
   on_boot:
     priority: 600
