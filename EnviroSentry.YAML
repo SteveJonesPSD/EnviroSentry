@@ -118,11 +118,11 @@ uart:
 
 remote_transmitter:
   id: ir_tx
-  pin: GPIO15  # Make sure this pin is not used elsewhere
+  pin: GPIO14  # Make sure this pin is not used elsewhere
   carrier_duty_percent: 33%
 
 remote_receiver:
-  pin: GPIO14
+  pin: GPIO15
   dump: all
   buffer_size: 2kb
   filter: 200us
@@ -377,6 +377,23 @@ number:
                               "SET_TEMP_OFFSET:%.2f\n", x);
             // send it over the bridge UART
             id(bridge_uart).write_str(cmd);  
+
+  - platform: template
+    name: LED Brightness
+    id: led_brightness_control
+    icon: mdi:thermometer
+    min_value: 0
+    max_value: 5
+    step: 1
+    optimistic: true     # assume it worked; no feedback sensor needed
+    set_action:
+    - lambda: |-
+        // Format the UART command into a C string
+        char cmd[32];
+        int len = snprintf(cmd, sizeof(cmd),
+                          "BRIGHTNESS:%d\n", (int)x);
+        // send it over the bridge UART
+        id(bridge_uart).write_str(cmd);  
 
 # Buffer raw JSON text
 globals:
