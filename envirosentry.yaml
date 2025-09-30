@@ -381,6 +381,23 @@ number:
             // send it over the bridge UART
             id(bridge_uart).write_str(cmd);  
 
+ - platform: template
+    name: LED Brightness
+    id: led_brightness_control
+    icon: mdi:thermometer
+    min_value: 0
+    max_value: 5
+    step: 1
+    optimistic: true     # assume it worked; no feedback sensor needed
+    set_action:
+    - lambda: |-
+        // Format the UART command into a C string
+        char cmd[32];
+        int len = snprintf(cmd, sizeof(cmd),
+                          "BRIGHTNESS:%d\n", (int)x);
+        // send it over the bridge UART
+        id(bridge_uart).write_str(cmd);  
+
 # Buffer raw JSON text
 globals:
   - id: json_buffer
