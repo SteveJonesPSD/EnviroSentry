@@ -44,12 +44,14 @@ logger:
   baud_rate: 0  # disable logging over UART
 
 ethernet:
-    type: LAN8720 # Or LAN8270, depending on your board
-    mdc_pin: GPIO23 # Adjust as needed
-    mdio_pin: GPIO18 # Adjust as needed
-    clk_mode: GPIO17_OUT # Adjust as needed
-    phy_addr: 0 # Usually 0
-    power_pin: GPIO12 # Adjust as needed, if applicable  
+  type: LAN8720   # Or LAN8270, depending on your board
+  mdc_pin: GPIO23   # Adjust as needed
+  mdio_pin: GPIO18   # Adjust as needed
+  clk:
+    pin: GPIO17
+    mode: CLK_OUT
+  phy_addr: 0   # Usually 0
+  power_pin: GPIO12   # Adjust as needed, if applicable  
 
 mqtt:
   broker: !secret mqtt_broker
@@ -460,6 +462,13 @@ interval:
               pos = raw.find("\"lux\":");
               if (pos >= 0) id(lux_sensor).publish_state(atof(raw.substr(pos+6).c_str()));
 
+              // Parse bme_press (pressure in hPa)
+              pos = raw.find("\"bme_press\":");
+              if (pos >= 0) id(bme_press_sensor).publish_state(atof(raw.substr(pos+12).c_str()));
+      
+              // Parse bme_gas_kohm (gas resistance in kΩ)
+              pos = raw.find("\"bme_gas_kohm\":");
+              if (pos >= 0) id(bme_gas_sensor).publish_state(atof(raw.substr(pos+15).c_str()));
 
                 // Parse iaq (text)
                 pos = raw.find("\"iaq\":");
@@ -631,93 +640,118 @@ button:
       - delay: 3s
       - switch.turn_on: mmwave_sensor 
 sensor:
-  - platform: template
-    name: "True CO2"
-    id: co2_sensor
-    unit_of_measurement: "ppm"
+- platform: template
+  name: True CO2
+  id: co2_sensor
+  unit_of_measurement: ppm
+  icon: mdi:molecule-co2
 
-  - platform: template
-    name: "Ambient Temperature"
-    id: temp_sensor
-    unit_of_measurement: "°C"
+- platform: template
+  name: Ambient Temperature
+  id: temp_sensor
+  unit_of_measurement: °C
+  icon: mdi:thermometer
 
-  - platform: template
-    name: "Relative Humidity"
-    id: hum_sensor
-    unit_of_measurement: "%"
+- platform: template
+  name: Relative Humidity
+  id: hum_sensor
+  unit_of_measurement: '%'
+  icon: mdi:water-percent
 
-  - platform: template
-    name: "PM2.5 Level"
-    id: pm25_sensor
-    unit_of_measurement: "µg/m³"
+- platform: template
+  name: PM2.5 Level
+  id: pm25_sensor
+  unit_of_measurement: µg/m³
+  icon: mdi:air-filter
 
-  - platform: template
-    name: "PM1.0 Level"
-    id: pm1_sensor
-    unit_of_measurement: "µg/m³"
+- platform: template
+  name: PM1.0 Level
+  id: pm1_sensor
+  unit_of_measurement: µg/m³
+  icon: mdi:air-filter
 
-  - platform: template
-    name: "PM4.0 Level"
-    id: pm4_sensor
-    unit_of_measurement: "µg/m³"
+- platform: template
+  name: PM4.0 Level
+  id: pm4_sensor
+  unit_of_measurement: µg/m³
+  icon: mdi:air-filter
 
-  - platform: template
-    name: "PM10.0 Level"
-    id: pm10_sensor
-    unit_of_measurement: "µg/m³"
+- platform: template
+  name: PM10.0 Level
+  id: pm10_sensor
+  unit_of_measurement: µg/m³
+  icon: mdi:air-filter
 
-  - platform: template
-    name: "VOC Index"
-    id: voc_sensor
+- platform: template
+  name: VOC Index
+  id: voc_sensor
+  unit_of_measurement: index
+  icon: mdi:scent
 
-  - platform: template
-    name: "NOx Index"
-    id: nox_sensor
+- platform: template
+  name: NOx Index
+  id: nox_sensor
+  icon: mdi:scent
 
-  - platform: template
-    name: "Ambient Light"
-    id: lux_sensor
-    unit_of_measurement: "lux"
+- platform: template
+  name: Ambient Light
+  id: lux_sensor
+  unit_of_measurement: lux
+  icon: mdi:brightness-6
 
-text_sensor:  
-  - platform: template
-    name: "IAQ"
-    id: iaq_sensor
+- platform: template
+  name: BME Pressure
+  id: bme_press_sensor
+  unit_of_measurement: hPa
+  icon: mdi:gauge
 
-  - platform: template
-    name: "Aerosol Detected"
-    id: aerosol_sensor 
+- platform: template
+  name: BME Gas Resistance
+  id: bme_gas_sensor
+  unit_of_measurement: kΩ
+  icon: mdi:gauge
+
+text_sensor:
+- platform: template
+  name: IAQ
+  id: iaq_sensor
+  icon: mdi:allergy
+
+- platform: template
+  name: Aerosol Detected
+  id: aerosol_sensor
+  icon: mdi:spray
 
 script:
-  - id: send_ir_code
-    mode: restart
-    then:
-      - lambda: |-
-          id(dark_mode_temp_change) = !id(dark_mode_enabled);
+- id: send_ir_code
+  mode: restart
+  then:
+  - lambda: |-
+      id(dark_mode_temp_change) = !id(dark_mode_enabled);
 
-      - if:
-          condition:
-            lambda: 'return id(dark_mode_temp_change);'
-          then:
-            - uart.write:
-                id: bridge_uart
-                data: "DARK_MODE:On\n"
-            - delay: 1s
-            - lambda: 'id(dark_mode_enabled) = true;'
+  - if:
+      condition:
+        lambda: return id(dark_mode_temp_change);
+      then:
+      - uart.write:
+          id: bridge_uart
+          data: "DARK_MODE:On\n"
+      - delay: 1s
+      - lambda: id(dark_mode_enabled) = true;
 
-      - repeat:
-          count: !lambda 'return id(ir_send_repeats);'
-          then:
-            - remote_transmitter.transmit_pronto:
-                data: !lambda 'return id(ir_send_code);'
-            - delay: !lambda 'return id(ir_send_delay);'
+  - repeat:
+      count: !lambda 'return id(ir_send_repeats);'
+      then:
+      - remote_transmitter.transmit_pronto:
+          data: !lambda 'return id(ir_send_code);'
+      - delay: !lambda 'return id(ir_send_delay);'
 
-      - if:
-          condition:
-            lambda: 'return id(dark_mode_temp_change);'
-          then:
-            - uart.write:
-                id: bridge_uart
-                data: "DARK_MODE:Off\n"
-            - delay: 1s
-            - lambda: 'id(dark_mode_enabled) = false;'
+  - if:
+      condition:
+        lambda: return id(dark_mode_temp_change);
+      then:
+      - uart.write:
+          id: bridge_uart
+          data: "DARK_MODE:Off\n"
+      - delay: 1s
+      - lambda: id(dark_mode_enabled) = false;
