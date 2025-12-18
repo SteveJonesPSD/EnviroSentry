@@ -715,6 +715,16 @@ sensor:
   icon: mdi:scent
 
 - platform: template
+  name: BME Pressure
+  id: bme_press_sensor
+  unit_of_measurement: hPa
+
+- platform: template
+  name: BME Gas Resistance
+  id: bme_gas_sensor
+  unit_of_measurement: kΩ
+
+- platform: template
   name: Ambient Light
   id: lux_sensor
   unit_of_measurement: lux
