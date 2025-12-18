@@ -479,6 +479,13 @@ interval:
           pos = raw.find("\"lux\":");
           if (pos >= 0) id(lux_sensor).publish_state(atof(raw.substr(pos+6).c_str()));
 
+          // Parse bme_press (pressure in hPa)
+          pos = raw.find("\"bme_press\":");
+          if (pos >= 0) id(bme_press_sensor).publish_state(atof(raw.substr(pos+12).c_str()));
+
+          // Parse bme_gas_kohm (gas resistance in kΩ)
+          pos = raw.find("\"bme_gas_kohm\":");
+          if (pos >= 0) id(bme_gas_sensor).publish_state(atof(raw.substr(pos+15).c_str()));
 
             // Parse iaq (text)
             pos = raw.find("\"iaq\":");
