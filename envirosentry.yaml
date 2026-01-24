@@ -3,30 +3,30 @@ esphome:
   friendly_name: envirosentry
   name_add_mac_suffix: True
   
-  on_boot:
+on_boot:
     priority: 600
     then:
-      - lambda: |-
-          uint8_t mac[6];
-          esp_read_mac(mac, ESP_MAC_WIFI_STA);
-          char buf[13];
-          snprintf(buf, sizeof(buf),
-                   "%02X%02X%02X%02X%02X%02X",
-                   mac[0], mac[1], mac[2],
-                   mac[3], mac[4], mac[5]);
-          id(device_id) = std::string(buf);
-          ESP_LOGI("setup", "Device ID set to: %s", buf);
-      - mqtt.publish:
-          topic: irblaster/status
-          payload: !lambda 'return "online";'
-          retain: true
-          qos: 0
+    - lambda: |-
+        uint8_t mac[6];
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        char buf[13];
+        snprintf(buf, sizeof(buf),
+                 "%02X%02X%02X%02X%02X%02X",
+                 mac[0], mac[1], mac[2],
+                 mac[3], mac[4], mac[5]);
+        id(device_id) = std::string(buf);
+        ESP_LOGI("setup", "Device ID set to: %s", buf);
+    - mqtt.publish:
+        topic: irblaster/status
+        payload: !lambda 'return "online";'
+        retain: true
+        qos: 0
 
 esp32:
   board: esp32-poe
   framework:
     type: esp-idf
-    
+
 # Include ArduinoJson library for JSON parsing in lambdas
 esp32_ble_tracker:
   scan_parameters:
@@ -40,7 +40,7 @@ bluetooth_proxy:
 
 # Enable logging
 logger:
-  level: INFO
+  level: DEBUG
   baud_rate: 0  # disable logging over UART
 
 ethernet:
@@ -59,67 +59,68 @@ mqtt:
   password: !secret mqtt_password
 
   discovery: false
-  
+
   on_message:
   - topic: irblaster/send
     qos: 0
     then:
-      - lambda: |-
-          esphome::json::parse_json(x, [](JsonObject root) -> bool {
-            if (!root["id"].is<std::string>() || !root["code"].is<std::string>()) {
-              ESP_LOGW("MQTT", "Missing or invalid 'id' or 'code' in JSON");
-              return true;
-            }
-
-            std::string target = root["id"].as<std::string>();
-            std::string code = root["code"].as<std::string>();
-
-            if (target == id(device_id)) {
-              ESP_LOGI("MQTT", "Device ID match. Sending IR.");
-              id(ir_send_code) = code;
-              id(ir_send_repeats) = root["repeats"].is<int>() ? root["repeats"].as<int>() : 1;
-              id(ir_send_delay) = root["delay_ms"].is<int>() ? root["delay_ms"].as<int>() : 50;
-              id(send_ir_code).execute();
-            } else {
-              ESP_LOGD("MQTT", "IR code not for this device (%s)", id(device_id).c_str());
-            }
-
+    - lambda: |-
+        esphome::json::parse_json(x, [](JsonObject root) -> bool {
+          if (!root["id"].is<std::string>() || !root["code"].is<std::string>()) {
+            ESP_LOGW("MQTT", "Missing or invalid 'id' or 'code' in JSON");
             return true;
-          });
+          }
+
+          std::string target = root["id"].as<std::string>();
+          std::string code = root["code"].as<std::string>();
+
+          if (target == id(device_id)) {
+            ESP_LOGI("MQTT", "Device ID match. Sending IR.");
+            id(ir_send_code) = code;
+            id(ir_send_repeats) = root["repeats"].is<int>() ? root["repeats"].as<int>() : 1;
+            id(ir_send_delay) = root["delay_ms"].is<int>() ? root["delay_ms"].as<int>() : 50;
+            id(send_ir_code).execute();
+          } else {
+            ESP_LOGD("MQTT", "IR code not for this device (%s)", id(device_id).c_str());
+          }
+
+          return true;
+        });
 
 # Home Assistant API with custom service to send UART commands
 api:
   reboot_timeout: 0s  # Optional: disables automatic reboot if HA disconnects
   services:
-    - service: send_uart_command
-      variables:
-        cmd: string
-      then:
-        - uart.write:
-            id: bridge_uart
-            data: !lambda |-
-              std::vector<uint8_t> v(cmd.begin(), cmd.end());
-              v.push_back('\n');
-              return v;
-  
+  - service: send_uart_command
+    variables:
+      cmd: string
+    then:
+    - uart.write:
+        id: bridge_uart
+        data: !lambda |-
+          std::vector<uint8_t> v(cmd.begin(), cmd.end());
+          v.push_back('\n');
+          return v;
+
 
 # OTA updates
 ota:
 
 - platform: esphome
-  password: "2e01e0bc3af7096234637b39ea87b150"
+  password: 2e01e0bc3af7096234637b39ea87b150
 
 # UART connected to Sensor Bridge
 uart:
-  - id: bridge_uart
-    rx_pin: GPIO36
-    tx_pin: GPIO4  # optional if you need TX
-    baud_rate: 115200
+- id: bridge_uart
+  rx_pin: GPIO36
+  tx_pin: GPIO4    # optional if you need TX
+  baud_rate: 115200
+  rx_buffer_size: 4096
 
-  - id: uart_presence
-    tx_pin: GPIO1 #Change to your TX pin
-    rx_pin: GPIO3 #Change to your RX pin
-    baud_rate: 9600
+- id: uart_presence
+  tx_pin: GPIO1   #Change to your TX pin
+  rx_pin: GPIO3   #Change to your RX pin
+  baud_rate: 9600
 
 remote_transmitter:
   id: ir_tx
@@ -439,85 +440,286 @@ globals:
   initial_value: 'false'
 
 interval:
-- interval: 5000ms
-  then:
-  - lambda: |-
-      // Read incoming bytes into buffer until newline
-      uint8_t b;
-      while (id(bridge_uart).available() && id(bridge_uart).read_byte(&b)) {
-        if (b == '\n') {
-          auto &raw = id(json_buffer);
-          int pos;
-          // Parse CO2
-          pos = raw.find("\"co2\":");
-          if (pos >= 0) id(co2_sensor).publish_state(atof(raw.substr(pos+6).c_str()));
-          // Parse temp
-          pos = raw.find("\"temp\":");
-          if (pos >= 0) id(temp_sensor).publish_state(atof(raw.substr(pos+7).c_str()));
-          // Parse hum
-          pos = raw.find("\"hum\":");
-          if (pos >= 0) id(hum_sensor).publish_state(atof(raw.substr(pos+6).c_str()));
-          // Parse pm2_5
-          pos = raw.find("\"pm2_5\":");
-          if (pos >= 0) id(pm25_sensor).publish_state(atof(raw.substr(pos+8).c_str()));
-          // Parse pm1
-          pos = raw.find("\"pm1\":");
-          if (pos >= 0) id(pm1_sensor).publish_state(atof(raw.substr(pos+8).c_str()));
-          // Parse pm4
-          pos = raw.find("\"pm4\":");
-          if (pos >= 0) id(pm4_sensor).publish_state(atof(raw.substr(pos+8).c_str()));
-          // Parse pm10
-          pos = raw.find("\"pm10\":");
-          if (pos >= 0) id(pm10_sensor).publish_state(atof(raw.substr(pos+8).c_str()));
-          // Parse voc
-          pos = raw.find("\"voc\":");
-          if (pos >= 0) id(voc_sensor).publish_state(atof(raw.substr(pos+6).c_str()));
-          // Parse nox
-          pos = raw.find("\"nox\":");
-          if (pos >= 0) id(nox_sensor).publish_state(atof(raw.substr(pos+6).c_str()));
-                        // Parse lux
-          pos = raw.find("\"lux\":");
-          if (pos >= 0) id(lux_sensor).publish_state(atof(raw.substr(pos+6).c_str()));
+  - interval: 2000ms
+    then:
+      - lambda: |-
+          uint8_t b;
+          while (id(bridge_uart).available() && id(bridge_uart).read_byte(&b)) {
+            if (b == '\n') {
+              auto &raw = id(json_buffer);
+              size_t pos;
 
-          // Parse bme_press (pressure in hPa)
-          pos = raw.find("\"bme_press\":");
-          if (pos >= 0) id(bme_press_sensor).publish_state(atof(raw.substr(pos+12).c_str()));
+              // =====================================================
+              // NUMERIC SENSORS
+              // =====================================================
+              
+              // Parse co2 - "co2":
+              pos = raw.find("\"co2\":");
+              if (pos != std::string::npos) id(co2_sensor).publish_state(atof(raw.substr(pos + 6).c_str()));
 
-          // Parse bme_gas_kohm (gas resistance in kΩ)
-          pos = raw.find("\"bme_gas_kohm\":");
-          if (pos >= 0) id(bme_gas_sensor).publish_state(atof(raw.substr(pos+15).c_str()));
+              // Parse temp - "temp":
+              pos = raw.find("\"temp\":");
+              if (pos != std::string::npos) id(temp_sensor).publish_state(atof(raw.substr(pos + 7).c_str()));
 
-            // Parse iaq (text)
-            pos = raw.find("\"iaq\":");
-            if (pos != std::string::npos) {
-            // find opening quote of the value
-            size_t start = raw.find('"', pos + 6) + 1;
-            // find closing quote
-            size_t end = raw.find('"', start);
-            if (start != std::string::npos && end != std::string::npos && end > start) {
-            std::string iaq = raw.substr(start, end - start);
-            id(iaq_sensor).publish_state(iaq);
+              // Parse hum - "hum":
+              pos = raw.find("\"hum\":");
+              if (pos != std::string::npos) id(hum_sensor).publish_state(atof(raw.substr(pos + 6).c_str()));
+
+              // Parse pm1 - "pm1":
+              pos = raw.find("\"pm1\":");
+              if (pos != std::string::npos) id(pm1_sensor).publish_state(atof(raw.substr(pos + 6).c_str()));
+
+              // Parse pm2_5 - "pm2_5":
+              pos = raw.find("\"pm2_5\":");
+              if (pos != std::string::npos) id(pm25_sensor).publish_state(atof(raw.substr(pos + 8).c_str()));
+
+              // Parse pm4 - "pm4":
+              pos = raw.find("\"pm4\":");
+              if (pos != std::string::npos) id(pm4_sensor).publish_state(atof(raw.substr(pos + 6).c_str()));
+
+              // Parse pm10 - "pm10":
+              pos = raw.find("\"pm10\":");
+              if (pos != std::string::npos) id(pm10_sensor).publish_state(atof(raw.substr(pos + 7).c_str()));
+
+              // Parse voc - "voc":
+              pos = raw.find("\"voc\":");
+              if (pos != std::string::npos) id(voc_sensor).publish_state(atof(raw.substr(pos + 6).c_str()));
+
+              // Parse nox - "nox":
+              pos = raw.find("\"nox\":");
+              if (pos != std::string::npos) id(nox_sensor).publish_state(atof(raw.substr(pos + 6).c_str()));
+
+              // Parse lux - "lux":
+              pos = raw.find("\"lux\":");
+              if (pos != std::string::npos) id(lux_sensor).publish_state(atof(raw.substr(pos + 6).c_str()));
+
+              // Parse bme_press - "bme_press":
+              pos = raw.find("\"bme_press\":");
+              if (pos != std::string::npos) id(bme_press_sensor).publish_state(atof(raw.substr(pos + 12).c_str()));
+
+              // Parse bme_gas_kohm - "bme_gas_kohm":
+              pos = raw.find("\"bme_gas_kohm\":");
+              if (pos != std::string::npos) id(bme_gas_sensor).publish_state(atof(raw.substr(pos + 15).c_str()));
+
+              // =====================================================
+              // MOISTURE METRICS (NEW)
+              // =====================================================
+              
+              // Parse abs_humidity - "abs_humidity":
+              pos = raw.find("\"abs_humidity\":");
+              if (pos != std::string::npos) id(abs_humidity_sensor).publish_state(atof(raw.substr(pos + 15).c_str()));
+
+              // Parse dew_point - "dew_point":
+              pos = raw.find("\"dew_point\":");
+              if (pos != std::string::npos) id(dew_point_sensor).publish_state(atof(raw.substr(pos + 12).c_str()));
+
+              // Parse vtt_index - "vtt_index":
+              pos = raw.find("\"vtt_index\":");
+              if (pos != std::string::npos) id(vtt_index_sensor).publish_state(atof(raw.substr(pos + 12).c_str()));
+
+              // Parse critical_rh - "critical_rh":
+              pos = raw.find("\"critical_rh\":");
+              if (pos != std::string::npos) id(critical_rh_sensor).publish_state(atof(raw.substr(pos + 14).c_str()));
+
+              // =====================================================
+              // VENTILATION SCORE (NEW)
+              // =====================================================
+              
+              // Parse vent_score - "vent_score":
+              pos = raw.find("\"vent_score\":");
+              if (pos != std::string::npos) id(vent_score_sensor).publish_state(atof(raw.substr(pos + 13).c_str()));
+
+              // Parse vent_events - "vent_events":
+              pos = raw.find("\"vent_events\":");
+              if (pos != std::string::npos) id(vent_events_sensor).publish_state(atof(raw.substr(pos + 14).c_str()));
+
+              // Parse co2_trend - "co2_trend":
+              pos = raw.find("\"co2_trend\":");
+              if (pos != std::string::npos) id(co2_trend_sensor).publish_state(atof(raw.substr(pos + 12).c_str()));
+
+              // =====================================================
+              // TEXT SENSORS
+              // =====================================================
+
+              // Parse iaq (text) - "iaq":"
+              pos = raw.find("\"iaq\":");
+              if (pos != std::string::npos) {
+                size_t start = raw.find('"', pos + 6);
+                if (start != std::string::npos) {
+                  start++;
+                  size_t end = raw.find('"', start);
+                  if (end != std::string::npos && end > start) {
+                    id(iaq_sensor).publish_state(raw.substr(start, end - start));
+                  }
+                }
               }
-                        }
-            // Parse aerosol (text)
-             pos = raw.find("\"aerosol\":");
-             if (pos != std::string::npos) {
-               // find opening quote of the value
-               size_t start = raw.find('"', pos + 10) + 1;
-               // find closing quote
-               size_t end = raw.find('"', start);
-               if (start != std::string::npos && end != std::string::npos && end > start) {
-                 std::string a = raw.substr(start, end - start);
-                 id(aerosol_sensor).publish_state(a);
-               }
-             }
 
-                        raw.clear();
+              // Parse aerosol (text) - "aerosol":"
+              pos = raw.find("\"aerosol\":");
+              if (pos != std::string::npos) {
+                size_t start = raw.find('"', pos + 10);
+                if (start != std::string::npos) {
+                  start++;
+                  size_t end = raw.find('"', start);
+                  if (end != std::string::npos && end > start) {
+                    id(aerosol_sensor).publish_state(raw.substr(start, end - start));
+                  }
+                }
+              }
 
-        } else {
-          id(json_buffer) += (char)b;
-        }
-      }
+              // Parse vtt_risk (text) - "vtt_risk":"
+              pos = raw.find("\"vtt_risk\":");
+              if (pos != std::string::npos) {
+                size_t start = raw.find('"', pos + 11);
+                if (start != std::string::npos) {
+                  start++;
+                  size_t end = raw.find('"', start);
+                  if (end != std::string::npos && end > start) {
+                    id(vtt_risk_sensor).publish_state(raw.substr(start, end - start));
+                  }
+                }
+              }
+
+              // Parse mould_favorable (boolean as text) - "mould_favorable":
+              pos = raw.find("\"mould_favorable\":");
+              if (pos != std::string::npos) {
+                size_t val_start = pos + 18;
+                if (raw.substr(val_start, 4) == "true") {
+                  id(mould_favorable_sensor).publish_state("Yes");
+                } else {
+                  id(mould_favorable_sensor).publish_state("No");
+                }
+              }
+
+              // Parse vent_rating (text) - "vent_rating":"
+              pos = raw.find("\"vent_rating\":");
+              if (pos != std::string::npos) {
+                size_t start = raw.find('"', pos + 14);
+                if (start != std::string::npos) {
+                  start++;
+                  size_t end = raw.find('"', start);
+                  if (end != std::string::npos && end > start) {
+                    id(vent_rating_sensor).publish_state(raw.substr(start, end - start));
+                  }
+                }
+              }
+
+              // Parse vent_issue (text) - "vent_issue":"
+              pos = raw.find("\"vent_issue\":");
+              if (pos != std::string::npos) {
+                size_t start = raw.find('"', pos + 13);
+                if (start != std::string::npos) {
+                  start++;
+                  size_t end = raw.find('"', start);
+                  if (end != std::string::npos && end > start) {
+                    id(vent_issue_sensor).publish_state(raw.substr(start, end - start));
+                  }
+                }
+              }
+              // =====================================================
+              // VAPE DETECTION MONITORING (NEW)
+              // =====================================================
+              
+              // Parse vd_baseline_pm25 - "vd_baseline_pm25":
+              pos = raw.find("\"vd_baseline_pm25\":");
+              if (pos != std::string::npos) id(vd_baseline_pm25_sensor).publish_state(atof(raw.substr(pos + 19).c_str()));
+
+              // Parse vd_baseline_voc - "vd_baseline_voc":
+              pos = raw.find("\"vd_baseline_voc\":");
+              if (pos != std::string::npos) id(vd_baseline_voc_sensor).publish_state(atof(raw.substr(pos + 18).c_str()));
+
+              // Parse vd_baseline_gas - "vd_baseline_gas":
+              pos = raw.find("\"vd_baseline_gas\":");
+              if (pos != std::string::npos) id(vd_baseline_gas_sensor).publish_state(atof(raw.substr(pos + 18).c_str()));
+
+              // Parse vd_pm25_delta - "vd_pm25_delta":
+              pos = raw.find("\"vd_pm25_delta\":");
+              if (pos != std::string::npos) id(vd_pm25_delta_sensor).publish_state(atof(raw.substr(pos + 16).c_str()));
+
+              // Parse vd_voc_delta - "vd_voc_delta":
+              pos = raw.find("\"vd_voc_delta\":");
+              if (pos != std::string::npos) id(vd_voc_delta_sensor).publish_state(atof(raw.substr(pos + 15).c_str()));
+
+              // Parse vd_baseline_samples - "vd_baseline_samples":
+              pos = raw.find("\"vd_baseline_samples\":");
+              if (pos != std::string::npos) id(vd_baseline_samples_sensor).publish_state(atof(raw.substr(pos + 22).c_str()));
+
+              // Parse vd_state - "vd_state":
+              pos = raw.find("\"vd_state\":");
+              if (pos != std::string::npos) id(vd_state_sensor).publish_state(atof(raw.substr(pos + 11).c_str()));
+
+              // Parse vd_peak_pm25 - "vd_peak_pm25":
+              pos = raw.find("\"vd_peak_pm25\":");
+              if (pos != std::string::npos) id(vd_peak_pm25_sensor).publish_state(atof(raw.substr(pos + 15).c_str()));
+
+              // Parse vd_vape_score - "vd_vape_score":
+              pos = raw.find("\"vd_vape_score\":");
+              if (pos != std::string::npos) id(vd_vape_score_sensor).publish_state(atof(raw.substr(pos + 16).c_str()));
+
+              // Parse vd_deo_score - "vd_deo_score":
+              pos = raw.find("\"vd_deo_score\":");
+              if (pos != std::string::npos) id(vd_deo_score_sensor).publish_state(atof(raw.substr(pos + 15).c_str()));
+
+              // Parse vd_baseline_valid (boolean) - "vd_baseline_valid":
+              pos = raw.find("\"vd_baseline_valid\":");
+              if (pos != std::string::npos) {
+                size_t val_start = pos + 20;
+                if (raw.substr(val_start, 4) == "true") {
+                  id(vd_baseline_valid_sensor).publish_state("Yes");
+                } else {
+                  id(vd_baseline_valid_sensor).publish_state("No");
+                }
+              }
+
+              // Parse vd_secs_since_clean - "vd_secs_since_clean":
+              pos = raw.find("\"vd_secs_since_clean\":");
+              if (pos != std::string::npos) id(vd_secs_since_clean_sensor).publish_state(atof(raw.substr(pos + 22).c_str()));
+
+              // Parse vd_baseline_drifting (boolean) - "vd_baseline_drifting":
+              pos = raw.find("\"vd_baseline_drifting\":");
+              if (pos != std::string::npos) {
+                size_t val_start = pos + 23;
+                if (raw.substr(val_start, 4) == "true") {
+                  id(vd_baseline_drifting_sensor).publish_state("Yes");
+                } else {
+                  id(vd_baseline_drifting_sensor).publish_state("No");
+                }
+              }
+
+              // --- Capture the full raw JSON for debugging ---
+              id(last_uart_json).publish_state(raw);
+
+              // Parse vd_air_clean (boolean) - "vd_air_clean":
+              pos = raw.find("\"vd_air_clean\":");
+              if (pos != std::string::npos) {
+                size_t val_start = pos + 15;
+                if (raw.substr(val_start, 4) == "true") {
+                  id(vd_clean_air_sensor).publish_state("Yes");
+                } else {
+                  id(vd_clean_air_sensor).publish_state("No");
+                }
+              }
+
+              // Parse vd_refractory_lockout (boolean) - "vd_refractory_lockout":
+              pos = raw.find("\"vd_refractory_lockout\":");
+              if (pos != std::string::npos) {
+                size_t val_start = pos + 24;
+                if (raw.substr(val_start, 4) == "true") {
+                  id(vd_refractory_sensor).publish_state("Yes");
+                } else {
+                  id(vd_refractory_sensor).publish_state("No");
+                }
+              }
+
+              // --- Capture the full raw JSON for debugging ---
+              id(last_uart_json).publish_state(raw);
+
+              raw.clear();
+            } else {
+              id(json_buffer) += (char)b;
+            }
+          }       
+
 
 button:
 - platform: template
@@ -546,7 +748,6 @@ button:
     - uart.write:
         id: bridge_uart
         data: "LED_PULSE:BLUE\n"
-
 
 - platform: template
   name: Clean SEN Fan
@@ -652,6 +853,7 @@ button:
   - uart.write:
       id: uart_presence
       data: resetSystem
+
 - platform: template
   name: Factory Reset mmWave
   icon: mdi:cog-counterclockwise
@@ -667,77 +869,265 @@ button:
   - delay: 3s
   - switch.turn_on: mmwave_sensor
 
+
 sensor:
+# =====================================================
+# CORE ENVIRONMENTAL SENSORS
+# =====================================================
 - platform: template
   name: True CO2
   id: co2_sensor
   unit_of_measurement: ppm
   icon: mdi:molecule-co2
+  device_class: carbon_dioxide
+  state_class: measurement
 
 - platform: template
   name: Ambient Temperature
   id: temp_sensor
   unit_of_measurement: °C
   icon: mdi:thermometer
+  device_class: temperature
+  state_class: measurement
 
 - platform: template
   name: Relative Humidity
   id: hum_sensor
   unit_of_measurement: '%'
   icon: mdi:water-percent
-
-- platform: template
-  name: PM2.5 Level
-  id: pm25_sensor
-  unit_of_measurement: µg/m³
-  icon: mdi:air-filter
+  device_class: humidity
+  state_class: measurement
 
 - platform: template
   name: PM1.0 Level
   id: pm1_sensor
-  unit_of_measurement: µg/m³
+  unit_of_measurement: ug/m3
   icon: mdi:air-filter
+  device_class: pm1
+  state_class: measurement
+
+- platform: template
+  name: PM2.5 Level
+  id: pm25_sensor
+  unit_of_measurement: ug/m3
+  icon: mdi:air-filter
+  device_class: pm25
+  state_class: measurement
 
 - platform: template
   name: PM4.0 Level
   id: pm4_sensor
-  unit_of_measurement: µg/m³
+  unit_of_measurement: ug/m3
   icon: mdi:air-filter
+  state_class: measurement
 
 - platform: template
   name: PM10.0 Level
   id: pm10_sensor
-  unit_of_measurement: µg/m³
+  unit_of_measurement: ug/m3
   icon: mdi:air-filter
+  device_class: pm10
+  state_class: measurement
 
 - platform: template
   name: VOC Index
   id: voc_sensor
   unit_of_measurement: index
   icon: mdi:scent
+  state_class: measurement
 
 - platform: template
   name: NOx Index
   id: nox_sensor
+  unit_of_measurement: index
   icon: mdi:scent
-
-- platform: template
-  name: BME Pressure
-  id: bme_press_sensor
-  unit_of_measurement: hPa
-
-- platform: template
-  name: BME Gas Resistance
-  id: bme_gas_sensor
-  unit_of_measurement: kΩ
+  state_class: measurement
 
 - platform: template
   name: Ambient Light
   id: lux_sensor
   unit_of_measurement: lux
   icon: mdi:brightness-6
+  device_class: illuminance
+  state_class: measurement
+
+- platform: template
+  name: BME Pressure
+  id: bme_press_sensor
+  unit_of_measurement: hPa
+  icon: mdi:gauge
+  device_class: atmospheric_pressure
+  state_class: measurement
+
+- platform: template
+  name: BME Gas Resistance
+  id: bme_gas_sensor
+  unit_of_measurement: kOhm
+  icon: mdi:gas-cylinder
+  state_class: measurement
+
+# =====================================================
+# MOISTURE METRICS (NEW)
+# =====================================================
+- platform: template
+  name: Absolute Humidity
+  id: abs_humidity_sensor
+  unit_of_measurement: g/m3
+  icon: mdi:water
+  state_class: measurement
+  accuracy_decimals: 2
+
+- platform: template
+  name: Dew Point
+  id: dew_point_sensor
+  unit_of_measurement: °C
+  icon: mdi:thermometer-water
+  device_class: temperature
+  state_class: measurement
+  accuracy_decimals: 1
+
+- platform: template
+  name: VTT Mould Index
+  id: vtt_index_sensor
+  unit_of_measurement: index
+  icon: mdi:virus
+  state_class: measurement
+  accuracy_decimals: 2
+
+- platform: template
+  name: Critical RH
+  id: critical_rh_sensor
+  unit_of_measurement: '%'
+  icon: mdi:water-percent-alert
+  state_class: measurement
+  accuracy_decimals: 1
+
+# =====================================================
+# VENTILATION SCORE (NEW)
+# =====================================================
+- platform: template
+  name: Ventilation Score
+  id: vent_score_sensor
+  unit_of_measurement: '/100'
+  icon: mdi:fan
+  state_class: measurement
+  accuracy_decimals: 0
+
+- platform: template
+  name: Ventilation Events Today
+  id: vent_events_sensor
+  unit_of_measurement: events
+  icon: mdi:window-open-variant
+  state_class: measurement
+  accuracy_decimals: 0
+
+- platform: template
+  name: CO2 Trend
+  id: co2_trend_sensor
+  unit_of_measurement: ppm/min
+  icon: mdi:trending-up
+  state_class: measurement
+  accuracy_decimals: 1
+
+# =====================================================
+# VAPE DETECTION MONITORING (NEW)
+# =====================================================
+- platform: template
+  name: VD Baseline PM2.5
+  id: vd_baseline_pm25_sensor
+  unit_of_measurement: ug/m3
+  icon: mdi:blur
+  state_class: measurement
+  accuracy_decimals: 1
+  entity_category: diagnostic
+
+- platform: template
+  name: VD Baseline VOC
+  id: vd_baseline_voc_sensor
+  unit_of_measurement: index
+  icon: mdi:blur
+  state_class: measurement
+  accuracy_decimals: 0
+  entity_category: diagnostic
+
+- platform: template
+  name: VD Baseline Gas
+  id: vd_baseline_gas_sensor
+  unit_of_measurement: kOhm
+  icon: mdi:blur
+  state_class: measurement
+  accuracy_decimals: 1
+  entity_category: diagnostic
+
+- platform: template
+  name: VD PM2.5 Delta
+  id: vd_pm25_delta_sensor
+  unit_of_measurement: ug/m3
+  icon: mdi:delta
+  state_class: measurement
+  accuracy_decimals: 1
+
+- platform: template
+  name: VD VOC Delta
+  id: vd_voc_delta_sensor
+  unit_of_measurement: index
+  icon: mdi:delta
+  state_class: measurement
+  accuracy_decimals: 0
+
+- platform: template
+  name: VD Baseline Samples
+  id: vd_baseline_samples_sensor
+  unit_of_measurement: samples
+  icon: mdi:counter
+  state_class: measurement
+  accuracy_decimals: 0
+  entity_category: diagnostic
+
+- platform: template
+  name: VD State
+  id: vd_state_sensor
+  icon: mdi:state-machine
+  accuracy_decimals: 0
+  entity_category: diagnostic
+
+- platform: template
+  name: VD Peak PM2.5
+  id: vd_peak_pm25_sensor
+  unit_of_measurement: ug/m3
+  icon: mdi:arrow-up-bold
+  state_class: measurement
+  accuracy_decimals: 1
+
+- platform: template
+  name: VD Vape Score
+  id: vd_vape_score_sensor
+  unit_of_measurement: '%'
+  icon: mdi:smoke
+  state_class: measurement
+  accuracy_decimals: 0
+
+- platform: template
+  name: VD Deodorant Score
+  id: vd_deo_score_sensor
+  unit_of_measurement: '%'
+  icon: mdi:spray
+  state_class: measurement
+  accuracy_decimals: 0
+
+- platform: template
+  name: VD Secs Since Clean
+  id: vd_secs_since_clean_sensor
+  unit_of_measurement: s
+  icon: mdi:timer-outline
+  state_class: measurement
+  accuracy_decimals: 0
+  entity_category: diagnostic
 
 text_sensor:
+# =====================================================
+# CORE TEXT SENSORS
+# =====================================================
 - platform: template
   name: IAQ
   id: iaq_sensor
@@ -747,6 +1137,67 @@ text_sensor:
   name: Aerosol Detected
   id: aerosol_sensor
   icon: mdi:spray
+
+# =====================================================
+# MOISTURE TEXT SENSORS (NEW)
+# =====================================================
+- platform: template
+  name: VTT Risk Level
+  id: vtt_risk_sensor
+  icon: mdi:virus
+
+- platform: template
+  name: Mould Favourable
+  id: mould_favorable_sensor
+  icon: mdi:alert-circle
+
+# =====================================================
+# VENTILATION TEXT SENSORS (NEW)
+# =====================================================
+- platform: template
+  name: Ventilation Rating
+  id: vent_rating_sensor
+  icon: mdi:fan
+
+- platform: template
+  name: Ventilation Issue
+  id: vent_issue_sensor
+  icon: mdi:alert
+
+# =====================================================
+# VAPE DETECTION TEXT SENSORS (NEW)
+# =====================================================
+- platform: template
+  name: VD Baseline Valid
+  id: vd_baseline_valid_sensor
+  icon: mdi:check-circle
+  entity_category: diagnostic
+
+- platform: template
+  name: VD Clean Air
+  id: vd_clean_air_sensor
+  icon: mdi:air-filter
+
+- platform: template
+  name: VD Refractory
+  id: vd_refractory_sensor
+  icon: mdi:timer-sand
+  entity_category: diagnostic
+
+- platform: template
+  name: VD Baseline Drifting
+  id: vd_baseline_drifting_sensor
+  icon: mdi:chart-timeline-variant
+  entity_category: diagnostic
+
+# =====================================================
+# DIAGNOSTIC
+# =====================================================
+- platform: template
+  id: last_uart_json
+  name: "EnviroSentry Last UART JSON"
+  entity_category: diagnostic
+
 
 script:
 - id: send_ir_code
@@ -781,3 +1232,5 @@ script:
           data: "DARK_MODE:Off\n"
       - delay: 1s
       - lambda: id(dark_mode_enabled) = false;
+
+
