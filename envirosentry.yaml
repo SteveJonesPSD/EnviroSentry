@@ -3,24 +3,24 @@ esphome:
   friendly_name: envirosentry
   name_add_mac_suffix: True
   
-on_boot:
-    priority: 600
-    then:
-    - lambda: |-
-        uint8_t mac[6];
-        esp_read_mac(mac, ESP_MAC_WIFI_STA);
-        char buf[13];
-        snprintf(buf, sizeof(buf),
-                 "%02X%02X%02X%02X%02X%02X",
-                 mac[0], mac[1], mac[2],
-                 mac[3], mac[4], mac[5]);
-        id(device_id) = std::string(buf);
-        ESP_LOGI("setup", "Device ID set to: %s", buf);
-    - mqtt.publish:
-        topic: irblaster/status
-        payload: !lambda 'return "online";'
-        retain: true
-        qos: 0
+  on_boot:
+      priority: 600
+      then:
+      - lambda: |-
+          uint8_t mac[6];
+          esp_read_mac(mac, ESP_MAC_WIFI_STA);
+          char buf[13];
+          snprintf(buf, sizeof(buf),
+                   "%02X%02X%02X%02X%02X%02X",
+                   mac[0], mac[1], mac[2],
+                   mac[3], mac[4], mac[5]);
+          id(device_id) = std::string(buf);
+          ESP_LOGI("setup", "Device ID set to: %s", buf);
+      - mqtt.publish:
+          topic: irblaster/status
+          payload: !lambda 'return "online";'
+          retain: true
+          qos: 0
 
 esp32:
   board: esp32-poe
